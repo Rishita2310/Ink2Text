@@ -5,25 +5,62 @@ const AuthManager = {
         return user ? JSON.parse(user) : null;
     },
 
-    login(email, password) {
-        const user = { email, name: email.split('@')[0], loginTime: Date.now() };
-        localStorage.setItem('user', JSON.stringify(user));
-        this.updateUI();
-        return true;
+    async login(email, password) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/auth/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ email, password })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Store user data
+                localStorage.setItem('user', JSON.stringify(data.user));
+                this.updateUI();
+                return { success: true };
+            } else {
+                return { success: false, error: data.error };
+            }
+        } catch (error) {
+            console.error('Login error:', error);
+            return { success: false, error: 'Cannot connect to server' };
+        }
     },
 
-    signup(name, email, password) {
+    async signup(name, email, password) {
         // Validate password strength
         const validation = this.validatePasswordStrength(password);
         if (!validation.isValid) {
-            showToast('Weak Password', validation.message, 'error');
-            return false;
+            return { success: false, error: validation.message };
         }
 
-        const user = { name, email, signupTime: Date.now() };
-        localStorage.setItem('user', JSON.stringify(user));
-        this.updateUI();
-        return true;
+        try {
+            const response = await fetch(`${API_BASE_URL}/auth/signup`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ name, email, password })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Store user data
+                localStorage.setItem('user', JSON.stringify(data.user));
+                this.updateUI();
+                return { success: true };
+            } else {
+                return { success: false, error: data.error };
+            }
+        } catch (error) {
+            console.error('Signup error:', error);
+            return { success: false, error: 'Cannot connect to server' };
+        }
     },
 
     validatePasswordStrength(password) {
@@ -94,8 +131,8 @@ const HistoryManager = {
         if (!user) return [];
         
         try {
-            // Try to get from backend first
-            const response = await fetch(`${API_BASE_URL}/history`);
+            // Get from backend using user_id
+            const response = await fetch(`${API_BASE_URL}/history/${user.user_id}`);
             const data = await response.json();
             
             if (data.success) {
@@ -282,6 +319,36 @@ function goToPage(pageName) {
     pages.forEach(page => page.classList.remove('active'));
     document.getElementById(pageName).classList.add('active');
     window.scrollTo(0, 0);
+    
+    // Update daily limit banner when going to converter page
+    if (pageName === 'converter') {
+        updateDailyLimitBanner();
+    }
+}
+
+// Update Daily Limit Banner
+function updateDailyLimitBanner() {
+    const user = AuthManager.getUser();
+    const banner = document.getElementById('dailyLimitBanner');
+    const remainingCountEl = document.getElementById('remainingCount');
+    
+    if (!user) {
+        // Show banner for non-logged-in users
+        const info = getDailyUsageInfo();
+        banner.style.display = 'block';
+        remainingCountEl.textContent = info.remaining;
+        
+        // Change color based on remaining count
+        if (info.remaining === 0) {
+            banner.style.background = 'linear-gradient(135deg, rgba(220, 38, 38, 0.1), rgba(239, 68, 68, 0.1))';
+            banner.querySelector('p').innerHTML = '<strong>Daily Limit Reached!</strong> Login to continue converting images';
+        } else if (info.remaining <= 2) {
+            banner.style.background = 'linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(251, 191, 36, 0.1))';
+        }
+    } else {
+        // Hide banner for logged-in users
+        banner.style.display = 'none';
+    }
 }
 
 // Authentication Forms
@@ -302,12 +369,21 @@ function handleLogin(event) {
         return;
     }
 
-    if (AuthManager.login(email, password)) {
-        showToast('Login successful!', 'success');
-        document.getElementById('loginEmail').value = '';
-        document.getElementById('loginPassword').value = '';
-        goToPage('home');
-    }
+    // Call async login
+    AuthManager.login(email, password).then(result => {
+        if (result.success) {
+            showToast('Login successful!', 'success');
+            document.getElementById('loginEmail').value = '';
+            document.getElementById('loginPassword').value = '';
+            
+            // Update daily limit banner
+            updateDailyLimitBanner();
+            
+            goToPage('home');
+        } else {
+            showToast('Login failed', result.error, 'error');
+        }
+    });
 }
 
 // Password Strength Validator for Login
@@ -375,14 +451,23 @@ function handleSignup(event) {
         return;
     }
 
-    if (AuthManager.signup(name, email, password)) {
-        showToast('Account created successfully!', 'success');
-        document.getElementById('signupName').value = '';
-        document.getElementById('signupEmail').value = '';
-        document.getElementById('signupPassword').value = '';
-        document.getElementById('signupConfirm').value = '';
-        goToPage('home');
-    }
+    // Call async signup
+    AuthManager.signup(name, email, password).then(result => {
+        if (result.success) {
+            showToast('Account created successfully!', 'success');
+            document.getElementById('signupName').value = '';
+            document.getElementById('signupEmail').value = '';
+            document.getElementById('signupPassword').value = '';
+            document.getElementById('signupConfirm').value = '';
+            
+            // Update daily limit banner
+            updateDailyLimitBanner();
+            
+            goToPage('home');
+        } else {
+            showToast('Signup failed', result.error, 'error');
+        }
+    });
 }
 
 // Password Strength Validator
@@ -430,6 +515,10 @@ function logout() {
     // Clear history when logging out (no need to clear from DB, just local state)
     AuthManager.logout();
     showToast('Logged out successfully', 'success');
+    
+    // Update daily limit banner if on converter page
+    updateDailyLimitBanner();
+    
     goToPage('home');
 }
 
@@ -494,10 +583,17 @@ async function processImage() {
     }
 
     const user = AuthManager.getUser();
+    
+    // Check daily limit for non-logged-in users
     if (!user) {
-        showToast('Please login to use OCR', 'error');
-        showLoginModal();
-        return;
+        const canConvert = checkDailyLimit();
+        if (!canConvert) {
+            showToast('Daily limit reached!', 'You have used all 5 free conversions today. Please login to continue.', 'error');
+            setTimeout(() => {
+                showLoginModal();
+            }, 1500);
+            return;
+        }
     }
 
     const btn = document.getElementById('processBtn');
@@ -505,44 +601,35 @@ async function processImage() {
     btn.innerHTML = '<span class="spinner"></span>Processing...';
 
     try {
-        // Try backend first
-        const useBackend = false; // Set to true when backend is working
+        // Client-side processing with Tesseract.js
+        console.log('Using client-side OCR (Tesseract.js)');
         
-        if (useBackend) {
-            // Backend processing
-            const formData = new FormData();
-            formData.append('image', converterState.imageFile);
+        const { createWorker } = await import('https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/+esm');
+        const worker = await createWorker('eng');
+        const { data: { text } } = await worker.recognize(converterState.imageData);
+        await worker.terminate();
 
-            const response = await fetch(`${API_BASE_URL}/ocr`, {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) {
-                throw new Error('Backend not available');
-            }
-
-            const data = await response.json();
-            if (data.success) {
-                document.getElementById('extractedText').value = data.text;
-                await HistoryManager.updateHistoryButton();
-                showToast('Text extracted and saved to database!', 'success');
+        document.getElementById('extractedText').value = text;
+        
+        // Increment usage count for non-logged-in users
+        if (!user) {
+            incrementDailyUsage();
+            updateDailyLimitBanner(); // Update the banner
+            const remaining = getRemainingConversions();
+            if (remaining > 0) {
+                showToast('Text extracted!', `${remaining} free conversion${remaining > 1 ? 's' : ''} remaining today. Login for unlimited access.`, 'success');
+            } else {
+                showToast('Text extracted!', 'This was your last free conversion today. Login for unlimited access.', 'success');
+                setTimeout(() => {
+                    showLoginModal();
+                }, 2000);
             }
         } else {
-            // Client-side processing with Tesseract.js
-            console.log('Using client-side OCR (Tesseract.js)');
-            
-            const { createWorker } = await import('https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/+esm');
-            const worker = await createWorker('eng');
-            const { data: { text } } = await worker.recognize(converterState.imageData);
-            await worker.terminate();
-
-            document.getElementById('extractedText').value = text;
-            
-            // Save to backend if available, otherwise just show success
+            // Save to backend with user_id for logged-in users
             try {
                 const formData = new FormData();
                 formData.append('image', converterState.imageFile);
+                formData.append('user_id', user.user_id);
                 
                 const response = await fetch(`${API_BASE_URL}/ocr`, {
                     method: 'POST',
@@ -580,6 +667,64 @@ async function processImage() {
         btn.disabled = false;
         btn.innerHTML = '🔄 Process';
     }
+}
+
+// Daily Limit Functions for Non-Logged-In Users
+function checkDailyLimit() {
+    const today = new Date().toDateString();
+    const usageData = JSON.parse(localStorage.getItem('daily-usage') || '{}');
+    
+    // Reset if it's a new day
+    if (usageData.date !== today) {
+        return true;
+    }
+    
+    // Check if limit reached
+    return (usageData.count || 0) < 5;
+}
+
+function incrementDailyUsage() {
+    const today = new Date().toDateString();
+    const usageData = JSON.parse(localStorage.getItem('daily-usage') || '{}');
+    
+    if (usageData.date !== today) {
+        // New day, reset count
+        localStorage.setItem('daily-usage', JSON.stringify({
+            date: today,
+            count: 1
+        }));
+    } else {
+        // Increment count
+        usageData.count = (usageData.count || 0) + 1;
+        localStorage.setItem('daily-usage', JSON.stringify(usageData));
+    }
+}
+
+function getRemainingConversions() {
+    const today = new Date().toDateString();
+    const usageData = JSON.parse(localStorage.getItem('daily-usage') || '{}');
+    
+    if (usageData.date !== today) {
+        return 5;
+    }
+    
+    return Math.max(0, 5 - (usageData.count || 0));
+}
+
+function getDailyUsageInfo() {
+    const today = new Date().toDateString();
+    const usageData = JSON.parse(localStorage.getItem('daily-usage') || '{}');
+    
+    if (usageData.date !== today) {
+        return { used: 0, remaining: 5, total: 5 };
+    }
+    
+    const used = usageData.count || 0;
+    return {
+        used: used,
+        remaining: Math.max(0, 5 - used),
+        total: 5
+    };
 }
 
 function copyText() {
@@ -718,4 +863,10 @@ document.addEventListener('DOMContentLoaded', () => {
     ThemeManager.init();
     AuthManager.updateUI();
     HistoryManager.updateHistoryButton(); // Initialize history button state
+    
+    // Update daily limit banner if on converter page
+    const converterPage = document.getElementById('converter');
+    if (converterPage && converterPage.classList.contains('active')) {
+        updateDailyLimitBanner();
+    }
 });
