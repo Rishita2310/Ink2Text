@@ -1255,6 +1255,17 @@
         <div id="converter" class="page">
             <h1 style="margin-bottom: 30px;">OCR Converter</h1>
             
+            <!-- Daily Limit Banner for Non-Logged-In Users -->
+            <div id="dailyLimitBanner" style="display: none; background: linear-gradient(135deg, rgba(93, 74, 142, 0.1), rgba(139, 122, 181, 0.1)); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 20px; text-align: center;">
+                <p style="font-size: 16px; color: var(--foreground); margin-bottom: 10px;">
+                    <strong>Free Trial:</strong> <span id="remainingCount">5</span> conversions remaining today
+                </p>
+                <p style="font-size: 14px; color: var(--muted-foreground);">
+                    Login for unlimited conversions and history access
+                </p>
+                <button class="primary" onclick="goToPage('login')" style="margin-top: 10px;">Login Now</button>
+            </div>
+            
             <button onclick="toggleHistory()" style="margin-bottom: 20px;">📜 History</button>
             <div id="historyPanel" class="history-panel"></div>
 
@@ -1264,7 +1275,7 @@
                         <div style="font-size: 48px; margin-bottom: 10px;">📁</div>
                         <p style="font-weight: 500; margin-bottom: 5px;">Click to upload or drag & drop</p>
                         <p style="font-size: 12px; color: var(--muted-foreground);">PNG, JPG, WebP up to 5MB</p>
-                        <input type="file" id="imageInput" accept="image/*" style="display: none;">
+                        <input type="file" id="imageInput" accept="image/" style="display: none;">
                     </div>
                     <img id="imagePreview">
                 </div>
