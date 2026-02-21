@@ -132,10 +132,16 @@ def create_app():
         if 'image' not in request.files:
             return jsonify({"error": "No image file provided"}), 400
         
-        # Get user_id from request (you can also use JWT tokens)
+        # Get user_id from request (optional for guest users)
         user_id = request.form.get('user_id')
+        
+        # If no user_id, this is a guest conversion - don't save to database
         if not user_id:
-            return jsonify({"error": "User ID is required"}), 400
+            return jsonify({
+                "success": True,
+                "message": "Guest conversion - not saved",
+                "text": "Guest mode - text not saved to database"
+            })
             
         file = request.files.get("image")
 
@@ -180,6 +186,8 @@ def create_app():
             db.session.add(ocr_entry)
             db.session.commit()
 
+            print(f"✅ Saved to database: Document ID {document.document_id}, User ID {user_id}")
+
             return jsonify({
                 "success": True,
                 "message": "OCR processed successfully",
@@ -189,6 +197,7 @@ def create_app():
         
         except Exception as e:
             db.session.rollback()
+            print(f"❌ Database error: {str(e)}")
             return jsonify({"error": f"OCR processing failed: {str(e)}"}), 500
 
     # ---------------- HISTORY (User-specific) ----------------
