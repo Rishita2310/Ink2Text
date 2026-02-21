@@ -607,21 +607,45 @@ async function processImage() {
     btn.innerHTML = '<span class="spinner"></span>Processing...';
 
     try {
-        // Client-side processing with Tesseract.js
-        console.log('Using client-side OCR (Tesseract.js)');
-        
-        const { createWorker } = await import('https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/+esm');
-        const worker = await createWorker('eng');
-        const { data: { text } } = await worker.recognize(converterState.imageData);
-        await worker.terminate();
+        if (user) {
+            // Logged-in user - use BACKEND OCR and save to database
+            console.log('Using backend OCR for logged-in user');
+            
+            const formData = new FormData();
+            formData.append('image', converterState.imageFile);
+            formData.append('user_id', user.user_id);
+            
+            const response = await fetch(`${API_BASE_URL}/ocr`, {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            console.log('Backend response:', data);
+            
+            if (response.ok && data.success) {
+                document.getElementById('extractedText').value = data.text;
+                await HistoryManager.updateHistoryButton();
+                showToast('Text extracted and saved to database!', 'success');
+            } else {
+                throw new Error(data.error || 'Backend processing failed');
+            }
+        } else {
+            // Non-logged-in user - use CLIENT-SIDE OCR (no database save)
+            console.log('Using client-side OCR for guest user');
+            
+            const { createWorker } = await import('https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/+esm');
+            const worker = await createWorker('eng');
+            const { data: { text } } = await worker.recognize(converterState.imageData);
+            await worker.terminate();
 
-        document.getElementById('extractedText').value = text;
-        
-        if (!user) {
-            // Non-logged-in user - just increment counter and show message
+            document.getElementById('extractedText').value = text;
+            
+            // Increment usage count
             incrementDailyUsage();
             updateDailyLimitBanner();
             const remaining = getRemainingConversions();
+            
             if (remaining > 0) {
                 showToast('Text extracted!', `${remaining} free conversion${remaining > 1 ? 's' : ''} remaining today. Login for unlimited access.`, 'success');
             } else {
@@ -630,29 +654,22 @@ async function processImage() {
                     showLoginModal();
                 }, 2000);
             }
-        } else {
-            // Logged-in user - save to backend with user_id
+        }
+    } catch (error) {
+        console.error('OCR Error:', error);
+        
+        // Fallback to client-side OCR if backend fails
+        if (user) {
+            console.log('Backend failed, falling back to client-side OCR');
             try {
-                const formData = new FormData();
-                formData.append('image', converterState.imageFile);
-                formData.append('user_id', user.user_id);
+                const { createWorker } = await import('https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/+esm');
+                const worker = await createWorker('eng');
+                const { data: { text } } = await worker.recognize(converterState.imageData);
+                await worker.terminate();
+
+                document.getElementById('extractedText').value = text;
                 
-                const response = await fetch(`${API_BASE_URL}/ocr`, {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok && data.success) {
-                    await HistoryManager.updateHistoryButton();
-                    showToast('Text extracted and saved to database!', 'success');
-                } else {
-                    throw new Error(data.error || 'Backend not available');
-                }
-            } catch (backendError) {
-                console.log('Backend error:', backendError);
-                // Fallback to localStorage for logged-in users if backend fails
+                // Save to localStorage as fallback
                 const item = {
                     id: Date.now().toString(),
                     text: text,
@@ -666,11 +683,12 @@ async function processImage() {
                 
                 await HistoryManager.updateHistoryButton();
                 showToast('Text extracted!', 'Saved locally - backend not connected', 'success');
+            } catch (fallbackError) {
+                showToast('Failed to process image', fallbackError.message, 'error');
             }
+        } else {
+            showToast('Failed to process image', error.message, 'error');
         }
-    } catch (error) {
-        console.error('OCR Error:', error);
-        showToast('Failed to process image: ' + error.message, 'error');
     } finally {
         btn.disabled = false;
         btn.innerHTML = '🔄 Process';
