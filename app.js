@@ -7,6 +7,7 @@ const AuthManager = {
 
     async login(email, password) {
         try {
+            console.log('Attempting login to backend...');
             const response = await fetch(`${API_BASE_URL}/auth/login`, {
                 method: 'POST',
                 headers: {
@@ -15,7 +16,9 @@ const AuthManager = {
                 body: JSON.stringify({ email, password })
             });
 
+            console.log('Login response status:', response.status);
             const data = await response.json();
+            console.log('Login response data:', data);
 
             if (data.success) {
                 // Store user data
@@ -27,7 +30,7 @@ const AuthManager = {
             }
         } catch (error) {
             console.error('Login error:', error);
-            return { success: false, error: 'Cannot connect to server' };
+            return { success: false, error: 'Cannot connect to server. Make sure backend is running on http://localhost:5000' };
         }
     },
 
@@ -39,6 +42,7 @@ const AuthManager = {
         }
 
         try {
+            console.log('Attempting signup to backend...');
             const response = await fetch(`${API_BASE_URL}/auth/signup`, {
                 method: 'POST',
                 headers: {
@@ -47,7 +51,9 @@ const AuthManager = {
                 body: JSON.stringify({ name, email, password })
             });
 
+            console.log('Signup response status:', response.status);
             const data = await response.json();
+            console.log('Signup response data:', data);
 
             if (data.success) {
                 // Store user data
@@ -59,7 +65,7 @@ const AuthManager = {
             }
         } catch (error) {
             console.error('Signup error:', error);
-            return { success: false, error: 'Cannot connect to server' };
+            return { success: false, error: 'Cannot connect to server. Make sure backend is running on http://localhost:5000' };
         }
     },
 
@@ -611,10 +617,10 @@ async function processImage() {
 
         document.getElementById('extractedText').value = text;
         
-        // Increment usage count for non-logged-in users
         if (!user) {
+            // Non-logged-in user - just increment counter and show message
             incrementDailyUsage();
-            updateDailyLimitBanner(); // Update the banner
+            updateDailyLimitBanner();
             const remaining = getRemainingConversions();
             if (remaining > 0) {
                 showToast('Text extracted!', `${remaining} free conversion${remaining > 1 ? 's' : ''} remaining today. Login for unlimited access.`, 'success');
@@ -625,7 +631,7 @@ async function processImage() {
                 }, 2000);
             }
         } else {
-            // Save to backend with user_id for logged-in users
+            // Logged-in user - save to backend with user_id
             try {
                 const formData = new FormData();
                 formData.append('image', converterState.imageFile);
@@ -636,15 +642,17 @@ async function processImage() {
                     body: formData
                 });
                 
-                if (response.ok) {
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
                     await HistoryManager.updateHistoryButton();
                     showToast('Text extracted and saved to database!', 'success');
                 } else {
-                    throw new Error('Backend not available');
+                    throw new Error(data.error || 'Backend not available');
                 }
             } catch (backendError) {
-                console.log('Backend not available, using localStorage');
-                // Fallback to localStorage
+                console.log('Backend error:', backendError);
+                // Fallback to localStorage for logged-in users if backend fails
                 const item = {
                     id: Date.now().toString(),
                     text: text,
@@ -657,7 +665,7 @@ async function processImage() {
                 localStorage.setItem('ocr-history', JSON.stringify(updated));
                 
                 await HistoryManager.updateHistoryButton();
-                showToast('Text extracted! (Saved locally - backend not connected)', 'success');
+                showToast('Text extracted!', 'Saved locally - backend not connected', 'success');
             }
         }
     } catch (error) {
